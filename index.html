@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>محرك بلسم: متجاوب (Responsive)</title>
+    <!-- تضمين Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- تضمين مكتبة Lucide Icons (لأيقونات الواجهة) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* خط "انتر" لجمالية الواجهة */
+        body { font-family: 'Inter', sans-serif; }
+        /* إخفاء شريط التمرير لأزرار الألوان */
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: none; border-radius: 4px; }
+        
+        /* تفعيل الانتقال السلس للحركة */
+        .transition-transform { transition-property: transform; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms; }
+
+        /* لضمان حجم متجاوب للـ Canvas مع الحفاظ على نسبة العرض إلى الارتفاع */
+        .canvas-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+
+        #editorCanvas, #playCanvas {
+            max-width: 100%;
+            max-height: 100%;
+            background-color: #030712; /* gray-950 */
+            aspect-ratio: 8 / 6; /* الحفاظ على نسبة الأبعاد الأصلية */
+            width: auto;
+            height: auto;
+        }
+
+        /* تحسين أزرار التحكم باللمس */
+        .joypad-btn {
+            @apply p-2 rounded-lg bg-gray-700/80 text-white hover:bg-blue-600 transition-colors shadow-lg touch-manipulation;
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 flex flex-col h-screen overflow-hidden">
+
+    <!-- الشريط العلوي -->
+    <header id="header" class="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700 shadow-md">
+        <div class="flex items-center gap-2">
+            <div class="w-7 h-7 bg-blue-600 rounded flex items-center justify-center">
+                <i data-lucide="layers" class="text-white w-4 h-4"></i>
+            </div>
+            <h1 class="text-lg font-bold tracking-wider sm:text-xl">محرك بلسم</h1>
+        </div>
+        
+        <div class="flex items-center gap-2 sm:gap-4 bg-gray-700 p-0.5 sm:p-1 rounded-lg">
+            <!-- زر إظهار لوحة الخصائص (يظهر فقط على شاشات الجوال) -->
+            <button id="showInspectorBtn" class="sm:hidden p-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white transition-all" title="فتح الخصائص">
+                <i data-lucide="info" class="w-5 h-5"></i>
+            </button>
+            
+            <button id="playToggleBtn" class="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-1.5 rounded font-bold transition-all bg-green-600 hover:bg-green-500 text-white text-sm sm:text-base">
+                <i data-lucide="play" class="w-4 h-4 sm:w-5 sm:h-5 fill-current"></i>
+                <span id="playToggleText">تشغيل</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- منطقة العمل الرئيسية - متجاوبة: شبكة بثلاثة أعمدة على الشاشات الكبيرة -->
+    <main class="flex flex-1 overflow-hidden">
+        
+        <!-- القائمة اليمنى: المشهد (Scene) - عمود ثابت على الشاشات الكبيرة، يسار على الجوال -->
+        <aside class="w-64 hidden sm:flex bg-gray-800 border-l border-gray-700 flex-col">
+            <div class="p-3 border-b border-gray-700 font-bold text-gray-300 flex justify-between items-center">
+                <span>المشهد</span>
+                <button id="addObjectBtn" class="p-1 hover:bg-gray-700 rounded text-blue-400" title="إضافة كائن جديد">
+                    <i data-lucide="plus" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div id="sceneList" class="flex-1 overflow-y-auto p-2 space-y-1">
+                <!-- قائمة الكائنات تظهر هنا -->
+            </div>
+            <div id="sceneCount" class="p-3 text-xs text-gray-500 text-center border-t border-gray-700">
+                0 كائنات في المشهد
+            </div>
+        </aside>
+
+        <!-- المنتصف: المحرر (Canvas) - يأخذ المساحة المتبقية -->
+        <div class="flex-1 bg-gray-900 relative overflow-auto">
+            <div class="canvas-container relative shadow-2xl">
+                <!-- تم إزالة الأبعاد الثابتة من هنا، وتحديدها بالـ CSS -->
+                <canvas id="editorCanvas" width="800" height="600" class="cursor-crosshair block transition-opacity duration-300"></canvas>
+                <div id="editorModeLabel" class="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded pointer-events-none">
+                    وضع التصميم
+                </div>
+            </div>
+        </div>
+
+        <!-- القائمة اليسرى: الخصائص (Inspector) - عمود ثابت على الشاشات الكبيرة، نافذة منبثقة على الجوال -->
+        <aside id="inspectorSidebar" class="w-80 hidden sm:flex bg-gray-800 border-r border-gray-700 flex-col overflow-y-auto">
+            <div class="p-3 border-b border-gray-700 font-bold text-gray-300">
+                الخصائص والسلوكيات
+            </div>
+            <div id="inspectorPanel" class="p-4 space-y-6">
+                <div class="flex flex-col items-center justify-center h-full text-gray-500 p-6 text-center">
+                    <i data-lucide="mouse-pointer-2" class="w-10 h-10 mb-4 opacity-20"></i>
+                    <p>اختر كائناً من المشهد أو المسرح لتعديل خصائصه</p>
+                </div>
+            </div>
+        </aside>
+    </main>
+    
+    <!-- نافذة منبثقة للخصائص (للهواتف) -->
+    <div id="inspectorModal" class="hidden fixed inset-0 bg-black/80 z-50 p-4">
+        <div class="bg-gray-800 rounded-xl shadow-2xl flex flex-col h-full">
+            <div class="p-3 border-b border-gray-700 font-bold text-gray-300 flex justify-between items-center">
+                <span>الخصائص والسلوكيات</span>
+                <button id="closeInspectorModalBtn" class="p-1 rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors" title="إغلاق">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+             <!-- يتم نسخ محتوى inspectorPanel هنا عند الحاجة -->
+            <div id="inspectorModalPanel" class="flex-1 overflow-y-auto p-4 space-y-6"></div>
+        </div>
+    </div>
+
+    <!-- نافذة التشغيل العائمة (Play Window Modal) - متجاوبة -->
+    <div id="playModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+        <div class="relative bg-gray-900 rounded-xl shadow-2xl border border-gray-700 overflow-hidden w-full h-full max-w-full max-h-full sm:w-auto sm:h-auto">
+            
+            <!-- رأس النافذة -->
+            <div class="flex items-center justify-between p-3 bg-gray-800 border-b border-gray-700">
+                <div class="flex items-center gap-2 text-green-400 font-bold">
+                    <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+                    <span>جاري تشغيل اللعبة</span>
+                </div>
+                <button id="closePlayModalBtn" class="p-1 rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors" title="إغلاق والعودة للمحرر">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            
+            <!-- منطقة اللعب المتجاوبة -->
+            <div class="relative canvas-container p-0">
+                <canvas id="playCanvas" width="800" height="600" class="block"></canvas>
+                
+                <!-- أزرار التحكم باللمس (Joypad) -->
+                <div id="mobileControls" class="absolute bottom-4 left-4 right-4 pointer-events-none">
+                    <div class="flex justify-between items-end pointer-events-auto">
+                        <div class="grid grid-cols-3 gap-1 sm:gap-2">
+                            <div class="col-start-2">
+                                <button data-key="ArrowUp" class="joypad-btn"><i data-lucide="arrow-up" class="w-5 h-5"></i></button>
+                            </div>
+                            <button data-key="ArrowLeft" class="joypad-btn"><i data-lucide="arrow-left" class="w-5 h-5"></i></button>
+                            <button data-key="ArrowDown" class="joypad-btn"><i data-lucide="arrow-down" class="w-5 h-5"></i></button>
+                            <button data-key="ArrowRight" class="joypad-btn"><i data-lucide="arrow-right" class="w-5 h-5"></i></button>
+                        </div>
+                        
+                        <button data-key=" " class="joypad-btn w-12 h-12 sm:w-16 sm:h-16 bg-red-600/80 hover:bg-red-500/90 rounded-full text-white text-sm font-bold">
+                            A
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- JavaScript Logic -->
+    <script>
+        // تهيئة أيقونات Lucide
+        lucide.createIcons();
+
+        // -------------------------------------------------------------------
+        // الثوابت والمتغيرات العامة
+        // -------------------------------------------------------------------
+        // الأبعاد المنطقية (ثابتة لأغراض المحاكاة والمنطق الداخلي)
+        const LOGICAL_WIDTH = 800;
+        const LOGICAL_HEIGHT = 600; 
+        
+        let objects = [
+            { id: 1, name: 'اللاعب', type: 'rect', x: 100, y: 300, w: 50, h: 50, color: '#3b82f6', behaviors: ['controls', 'gravity', 'collider'], vx: 0, vy: 0, rotation: 0 },
+            { id: 2, name: 'أرضية', type: 'rect', x: 0, y: 550, w: 800, h: 50, color: '#1f2937', behaviors: ['collider'], vx: 0, vy: 0, rotation: 0 },
+            { id: 3, name: 'صندوق', type: 'rect', x: 400, y: 200, w: 40, h: 40, color: '#ef4444', behaviors: ['gravity', 'bounce', 'collider'], vx: 0, vy: 0, rotation: 0 },
+        ];
+        
+        // نسخة يتم تحديثها في وضع التحرير فقط (لضمان إعادة الضبط)
+        let designObjects = JSON.parse(JSON.stringify(objects)); 
+        
+        let selectedId = 1;
+        let isPlaying = false;
+        let keysPressed = {};
+        let animationFrameId = null;
+        let scaleFactor = 1; // عامل التحجيم لضبط الأبعاد الحقيقية للـ Canvas
+        let isDragging = false; // لمتابعة حالة السحب في وضع التحرير
+
+        const BEHAVIORS = {
+            CONTROLS: { id: 'controls', name: 'تحكم بالأسهم', icon: 'move', desc: 'تحريك الكائن بلوحة المفاتيح/اللمس' },
+            GRAVITY: { id: 'gravity', name: 'جاذبية', icon: 'arrow-down', desc: 'يسقط الكائن لأسفل' },
+            BOUNCE: { id: 'bounce', name: 'ارتداد', icon: 'refresh-cw', desc: 'يرتد عند الاصطدام بالحواف' },
+            ROTATE: { id: 'rotate', name: 'دوران مستمر', icon: 'rotate-cw', desc: 'يدور الكائن حول نفسه' },
+            COLLIDER: { id: 'collider', name: 'جسم صلب', icon: 'square', desc: 'يمنع الكائنات الأخرى من المرور' },
+        };
+        
+        // ثوابت اللعبة
+        const GRAVITY_PULL = 0.5;
+        const CONTROL_SPEED = 5;
+        const JUMP_VELOCITY = -12;
+        
+        // -------------------------------------------------------------------
+        // وظائف DOM
+        // -------------------------------------------------------------------
+        const $ = (selector) => document.querySelector(selector);
+        const $$ = (selector) => document.querySelectorAll(selector);
+
+        const editorCanvas = $('#editorCanvas');
+        const playCanvas = $('#playCanvas');
+        const playModal = $('#playModal');
+        const sceneList = $('#sceneList');
+        const inspectorSidebar = $('#inspectorSidebar');
+        const inspectorPanel = $('#inspectorPanel');
+        const inspectorModal = $('#inspectorModal');
+        const inspectorModalPanel = $('#inspectorModalPanel');
+        const showInspectorBtn = $('#showInspectorBtn');
+        const closeInspectorModalBtn = $('#closeInspectorModalBtn');
+        const playToggleBtn = $('#playToggleBtn');
+        const playToggleText = $('#playToggleText');
+        const closePlayModalBtn = $('#closePlayModalBtn');
+
+        // -------------------------------------------------------------------
+        // منطق التحكم (Keyboard & Touch)
+        // -------------------------------------------------------------------
+
+        const updateKeys = (key, isDown) => {
+            keysPressed[key] = isDown;
+        };
+        
+        // تهيئة لوحة المفاتيح
+        window.addEventListener('keydown', (e) => {
+            if (isPlaying && (e.key.startsWith('Arrow') || e.key === ' ')) {
+                e.preventDefault(); // منع تمرير الصفحة عند اللعب
+                updateKeys(e.key, true);
+            }
+        });
+        window.addEventListener('keyup', (e) => {
+            if (isPlaying) updateKeys(e.key, false);
+        });
+        
+        // تهيئة أزرار التحكم باللمس
+        $$('.joypad-btn').forEach(button => {
+            const key = button.dataset.key; // تم تعديلها لتشمل المسافة (زر A)
+            
+            const startHandler = (e) => { 
+                e.preventDefault(); 
+                updateKeys(key, true); 
+                button.classList.add('bg-blue-600');
+                button.classList.remove('bg-gray-700/80');
+            };
+            const endHandler = (e) => { 
+                e.preventDefault(); 
+                updateKeys(key, false); 
+                button.classList.remove('bg-blue-600');
+                button.classList.add('bg-gray-700/80');
+            };
+
+            // دعم اللمس (للهواتف)
+            button.addEventListener('touchstart', startHandler);
+            button.addEventListener('touchend', endHandler);
+            
+            // دعم الماوس (للتجربة على الحاسوب)
+            button.addEventListener('mousedown', startHandler);
+            button.addEventListener('mouseup', endHandler);
+            button.addEventListener('mouseleave', () => {
+                if(isDragging) return; // لمنع التعليق عند سحب الماوس بعيداً
+                updateKeys(key, false)
+            }); 
+        });
+
+        // -------------------------------------------------------------------
+        // 1. حلقة اللعبة (Game Loop) - يتم تشغيلها فقط في وضع التشغيل
+        // -------------------------------------------------------------------
+
+        function gameLoop() {
+            if (!isPlaying) {
+                cancelAnimationFrame(animationFrameId);
+                return;
+            }
+
+            // يتم تعديل نسخة objects فقط في حلقة اللعب
+            objects.forEach(obj => {
+                // 1. سلوك التحكم (Controls)
+                if (obj.behaviors.includes('controls')) {
+                    if (keysPressed['ArrowRight']) obj.x += CONTROL_SPEED;
+                    if (keysPressed['ArrowLeft']) obj.x -= CONTROL_SPEED;
+                    
+                    // التحقق من أن الكائن على الأرضية قبل السماح بالقفز
+                    const isOnGround = objects.some(other => {
+                        if (obj.id === other.id || !other.behaviors.includes('collider')) return false;
+                        
+                        return (
+                            obj.x < other.x + other.w &&
+                            obj.x + obj.w > other.x &&
+                            obj.y + obj.h >= other.y &&
+                            obj.y + obj.h <= other.y + obj.vy + 1 // التحقق من اللمس الفعلي
+                        );
+                    });
+
+                    if ((keysPressed['ArrowUp'] || keysPressed[' ']) && obj.behaviors.includes('gravity') && isOnGround) {
+                        obj.vy = JUMP_VELOCITY;
+                    } else if ((keysPressed['ArrowUp'] || keysPressed[' ']) && !obj.behaviors.includes('gravity')) {
+                        obj.y -= CONTROL_SPEED;
+                    }
+                    if (keysPressed['ArrowDown'] && !obj.behaviors.includes('gravity')) obj.y += CONTROL_SPEED;
+                }
+
+                // 2. سلوك الجاذبية (Gravity)
+                if (obj.behaviors.includes('gravity')) {
+                    obj.vy += GRAVITY_PULL;
+                    obj.y += obj.vy;
+                    obj.vy = Math.min(obj.vy, 15);
+                }
+
+                // 3. سلوك الدوران (Rotate)
+                if (obj.behaviors.includes('rotate')) {
+                    obj.rotation = (obj.rotation + 2) % 360;
+                }
+                
+                // 4. الحفاظ على الكائن ضمن حدود الشاشة (جعل الكائنات لا تخرج عن حواف العالم)
+                obj.x = Math.max(0, Math.min(LOGICAL_WIDTH - obj.w, obj.x));
+                obj.y = Math.max(0, Math.min(LOGICAL_HEIGHT - obj.h, obj.y));
+            });
+            
+            // 5. فحص الاصطدام (Collision Detection)
+            objects.forEach(obj => {
+                if (obj.behaviors.includes('gravity') && obj.behaviors.includes('collider')) {
+                    objects.forEach(other => {
+                        if (obj.id !== other.id && other.behaviors.includes('collider')) {
+                            // AABB Collision Detection
+                            if (
+                                obj.x < other.x + other.w &&
+                                obj.x + obj.w > other.x &&
+                                obj.y < other.y + other.h &&
+                                obj.y + obj.h > other.y
+                            ) {
+                                // حل الاصطدام الأكثر دقة (لأغراض الجاذبية)
+                                
+                                // الاصطدام من الأسفل (الوقوف على المنصة)
+                                if (obj.vy > 0 && obj.y + obj.h - obj.vy <= other.y) {
+                                    obj.y = other.y - obj.h;
+                                    obj.vy = 0;
+                                } 
+                                // الاصطدام من الأعلى (الارتطام بسقف)
+                                else if (obj.vy < 0 && obj.y - obj.vy >= other.y + other.h) {
+                                    obj.y = other.y + other.h;
+                                    obj.vy = 0;
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+
+            drawScene(playCanvas.getContext('2d'), false); // الرسم في شاشة اللعب
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        // -------------------------------------------------------------------
+        // 2. وظيفة الرسم (Drawing Function) - مع التحجيم المتجاوب
+        // -------------------------------------------------------------------
+
+        function updateCanvasDimensions() {
+            // تحديث الأبعاد المنطقية للـ Canvas
+            editorCanvas.width = LOGICAL_WIDTH;
+            editorCanvas.height = LOGICAL_HEIGHT;
+            playCanvas.width = LOGICAL_WIDTH;
+            playCanvas.height = LOGICAL_HEIGHT;
+        }
+
+        function drawScene(ctx, isEditing) {
+            // يتم الرسم باستخدام الأبعاد المنطقية (LOGICAL_WIDTH, LOGICAL_HEIGHT)
+            // لذا لا داعي لعامل التحجيم (scaleFactor) داخل الدالة، فقط استخدام الأبعاد الثابتة 800x600
+
+            ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+
+            if (isEditing) {
+                // شبكة التصميم
+                ctx.strokeStyle = '#374151'; 
+                ctx.lineWidth = 1;
+                for (let i = 0; i < LOGICAL_WIDTH; i += 50) {
+                    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, LOGICAL_HEIGHT); ctx.stroke();
+                }
+                for (let i = 0; i < LOGICAL_HEIGHT; i += 50) {
+                    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(LOGICAL_WIDTH, i); ctx.stroke();
+                }
+            }
+
+            objects.forEach(obj => {
+                ctx.save();
+                // تطبيق الدوران حول المركز
+                ctx.translate(obj.x + obj.w / 2, obj.y + obj.h / 2);
+                ctx.rotate((obj.rotation * Math.PI) / 180);
+                ctx.translate(-(obj.x + obj.w / 2), -(obj.y + obj.h / 2));
+
+                ctx.fillStyle = obj.color;
+                
+                if (selectedId === obj.id && isEditing) {
+                    ctx.shadowColor = '#3b82f6';
+                    ctx.shadowBlur = 10;
+                    ctx.strokeStyle = '#2563eb';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(obj.x - 3, obj.y - 3, obj.w + 6, obj.h + 6);
+                } else {
+                    ctx.shadowBlur = 0;
+                }
+                
+                ctx.fillRect(obj.x, obj.y, obj.w, obj.h);
+                ctx.restore();
+            });
+        }
+
+        // -------------------------------------------------------------------
+        // 3. منطق واجهة المستخدم (UI & Reset Logic)
+        // -------------------------------------------------------------------
+        
+        // حساب عامل التحجيم الفعلي بناءً على أبعاد DOM
+        function getScaleFactor(canvas) {
+            const rect = canvas.getBoundingClientRect();
+            // نستخدم العرض لقياس عامل التحجيم
+            return rect.width / LOGICAL_WIDTH;
+        }
+
+        // تحويل إحداثيات الماوس/اللمس من الشاشة إلى إحداثيات المحرر المنطقية
+        function getLogicalCoordinates(canvas, clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const factor = getScaleFactor(canvas);
+            
+            // حساب الإزاحة الناتجة عن التوسيط
+            const offsetX = (rect.width - LOGICAL_WIDTH * factor) / 2;
+            const offsetY = (rect.height - LOGICAL_HEIGHT * factor) / 2;
+
+            const logicalX = (clientX - rect.left) / factor;
+            const logicalY = (clientY - rect.top) / factor;
+            
+            return { x: logicalX, y: logicalY };
+        }
+
+
+        function renderSceneList() {
+            sceneList.innerHTML = '';
+            objects.forEach(obj => {
+                const isSelected = selectedId === obj.id;
+                const item = document.createElement('div');
+                item.className = `flex items-center justify-between p-2 rounded cursor-pointer transition-colors ${isSelected ? 'bg-blue-900/50 border border-blue-600 text-blue-100' : 'hover:bg-gray-700 text-gray-400'}`;
+                item.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="square" class="${isSelected ? "text-blue-400" : "text-gray-500"} w-4 h-4"></i>
+                        <span class="text-sm truncate">${obj.name}</span>
+                    </div>
+                    <button data-id="${obj.id}" class="delete-btn text-gray-500 hover:text-red-400 p-1">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                `;
+                item.onclick = (e) => {
+                     // تأكد من أن النقر ليس على زر الحذف
+                    if (e.target.closest('.delete-btn')) return;
+                    selectObject(obj.id);
+                };
+                sceneList.appendChild(item);
+            });
+            $('#sceneCount').textContent = `${objects.length} كائنات في المشهد`;
+            lucide.createIcons();
+        }
+        
+        // وظيفة موحدة لعرض الخصائص (تستخدمها كل من الشريط الجانبي والنافذة المنبثقة)
+        function renderInspector(targetPanel) {
+            const selectedObj = objects.find(o => o.id === selectedId);
+            
+            // إذا لم يتم اختيار كائن أو كان وضع التشغيل مفعلاً، يتم إخفاء / تفريغ اللوحة
+            if (!selectedObj || isPlaying) {
+                targetPanel.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full text-gray-500 p-6 text-center">
+                        <i data-lucide="mouse-pointer-2" class="w-10 h-10 mb-4 opacity-20"></i>
+                        <p>اختر كائناً من المشهد أو المسرح لتعديل خصائصه</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            // محتوى الخصائص
+            targetPanel.innerHTML = `
+                <div class="space-y-3">
+                    <label class="text-xs uppercase text-gray-500 font-bold">البيانات الأساسية</label>
+                    <div class="form-group">
+                        <label class="text-xs text-gray-400 block mb-1">الاسم</label>
+                        <input id="prop-name" type="text" value="${selectedObj.name}" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white focus:border-blue-500 focus:outline-none" data-prop="name" />
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="form-group">
+                            <label class="text-xs text-gray-400 block mb-1">الموضع X</label>
+                            <input id="prop-x" type="number" value="${Math.round(selectedObj.x)}" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white" data-prop="x" />
+                        </div>
+                        <div class="form-group">
+                            <label class="text-xs text-gray-400 block mb-1">الموضع Y</label>
+                            <input id="prop-y" type="number" value="${Math.round(selectedObj.y)}" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white" data-prop="y" />
+                        </div>
+                        <div class="form-group">
+                            <label class="text-xs text-gray-400 block mb-1">العرض</label>
+                            <input id="prop-w" type="number" value="${selectedObj.w}" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white" data-prop="w" />
+                        </div>
+                        <div class="form-group">
+                            <label class="text-xs text-gray-400 block mb-1">الارتفاع</label>
+                            <input id="prop-h" type="number" value="${selectedObj.h}" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white" data-prop="h" />
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="text-xs text-gray-400 block mb-1">اللون</label>
+                        <div class="flex gap-2">
+                            <input id="prop-color" type="color" value="${selectedObj.color}" class="h-8 w-12 bg-transparent border border-gray-600 rounded cursor-pointer" data-prop="color" />
+                            <span class="text-xs self-center text-gray-400">${selectedObj.color}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="h-px bg-gray-700 my-2"></div>
+
+                <!-- نظام السلوكيات (المكعبات) -->
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <label class="text-xs uppercase text-gray-500 font-bold flex items-center gap-1">
+                            <i data-lucide="settings" class="w-3 h-3"></i>
+                            السلوكيات (Behaviors)
+                        </label>
+                    </div>
+                    <p class="text-xs text-gray-400">أضف منطقاً لهذا الكائن (مثل سكراتش)</p>
+                    
+                    <div id="behaviors-list-${targetPanel.id}" class="grid grid-cols-1 gap-2">
+                        <!-- السلوكيات تظهر هنا -->
+                    </div>
+                </div>
+            `;
+            
+            // إضافة السلوكيات
+            const behaviorsList = $(`#behaviors-list-${targetPanel.id}`);
+            Object.values(BEHAVIORS).forEach(behavior => {
+                const isActive = selectedObj.behaviors.includes(behavior.id);
+                const btn = document.createElement('button');
+                btn.className = `behavior-btn flex items-center justify-between p-2 rounded border transition-all ${
+                    isActive 
+                    ? 'bg-blue-600/20 border-blue-500 text-blue-100' 
+                    : 'bg-gray-700/50 border-gray-600 text-gray-400 hover:bg-gray-700'
+                }`;
+                btn.setAttribute('data-behavior-id', behavior.id);
+                btn.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="p-1.5 rounded ${isActive ? 'bg-blue-500 text-white' : 'bg-gray-600 text-gray-300'}">
+                            <i data-lucide="${behavior.icon}" class="w-4 h-4"></i>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-sm font-bold">${behavior.name}</div>
+                            <div class="text-[10px] opacity-70">${behavior.desc}</div>
+                        </div>
+                    </div>
+                    <div class="w-3 h-3 rounded-full border ${isActive ? 'bg-blue-500 border-blue-500' : 'border-gray-500'}"></div>
+                `;
+                behaviorsList.appendChild(btn);
+            });
+
+            // ربط مدخلات الخصائص (يجب أن يتم ربط الأحداث باللوحة النشطة)
+            targetPanel.querySelectorAll('.form-group input').forEach(input => {
+                input.addEventListener('input', (e) => {
+                    let value = e.target.value;
+                    const prop = e.target.dataset.prop;
+                    if (prop !== 'name' && prop !== 'color') {
+                        value = Number(value);
+                    }
+                    updateObject(selectedId, prop, value);
+                });
+            });
+            
+            // ربط أزرار السلوكيات
+            targetPanel.querySelectorAll('.behavior-btn').forEach(btn => {
+                btn.addEventListener('click', () => toggleBehavior(btn.dataset.behavior-id));
+            });
+            
+            lucide.createIcons();
+        }
+
+        function selectObject(id) {
+            selectedId = id;
+            renderSceneList();
+            // عرض الخصائص في كلا اللوحتين لضمان مزامنتها
+            renderInspector(inspectorPanel);
+            renderInspector(inspectorModalPanel); 
+            drawScene(editorCanvas.getContext('2d'), true);
+            
+            // على الشاشات الصغيرة، افتح النافذة المنبثقة تلقائياً عند الاختيار
+            if (window.innerWidth < 640 && id !== null) {
+                inspectorModal.classList.remove('hidden');
+            } else if (id === null) {
+                 inspectorModal.classList.add('hidden');
+            }
+        }
+
+        function addObject() {
+            const newId = Math.max(...objects.map(o => o.id), 0) + 1;
+            const newObj = {
+                id: newId,
+                name: `كائن ${newId}`,
+                type: 'rect',
+                x: LOGICAL_WIDTH / 2 - 25,
+                y: LOGICAL_HEIGHT / 2 - 25,
+                w: 50,
+                h: 50,
+                color: '#10b981',
+                behaviors: ['collider'],
+                vx: 0, vy: 0, rotation: 0
+            };
+            // التعديل على تصميم الكائنات فقط
+            designObjects.push(newObj);
+            objects = JSON.parse(JSON.stringify(designObjects));
+            selectObject(newId);
+        }
+
+        function updateObject(id, field, value) {
+            // تحديث الكائن في قائمة التصميم
+            designObjects = designObjects.map(obj => obj.id === id ? { ...obj, [field]: value } : obj);
+            // تحديث الكائن النشط ليعكس التعديل فوراً في المحرر
+            objects = objects.map(obj => obj.id === id ? { ...obj, [field]: value } : obj);
+            // تحديث واجهات المستخدم
+            renderInspector(inspectorPanel);
+            renderInspector(inspectorModalPanel);
+            drawScene(editorCanvas.getContext('2d'), true);
+            renderSceneList();
+        }
+
+        function toggleBehavior(behaviorId) {
+            const obj = designObjects.find(o => o.id === selectedId);
+            if (!obj) return;
+
+            let newBehaviors;
+            if (obj.behaviors.includes(behaviorId)) {
+                newBehaviors = obj.behaviors.filter(b => b !== behaviorId);
+            } else {
+                newBehaviors = [...obj.behaviors, behaviorId];
+            }
+            
+            updateObject(selectedId, 'behaviors', newBehaviors);
+        }
+
+        function deleteObject(id) {
+            designObjects = designObjects.filter(o => o.id !== id);
+            objects = objects.filter(o => o.id !== id);
+            if (selectedId === id) selectObject(null);
+            renderSceneList();
+            drawScene(editorCanvas.getContext('2d'), true);
+        }
+        
+        // -------------------------------------------------------------------
+        // منطق تشغيل/إيقاف اللعبة (مع إعادة الضبط)
+        // -------------------------------------------------------------------
+
+        function handlePlayToggle() {
+            const iconElement = $('#playToggleBtn').firstElementChild;
+            
+            if (isPlaying) {
+                // وضع الإيقاف
+                isPlaying = false;
+                playModal.classList.add('hidden');
+                
+                // *** منطق إعادة الضبط ***
+                objects = JSON.parse(JSON.stringify(designObjects));
+                keysPressed = {};
+                
+                playToggleBtn.classList.remove('bg-red-600', 'hover:bg-red-500');
+                playToggleBtn.classList.add('bg-green-600', 'hover:bg-green-500');
+                
+                if (iconElement) iconElement.setAttribute('data-lucide', 'play');
+                playToggleText.textContent = 'تشغيل';
+                
+                lucide.createIcons();
+                drawScene(editorCanvas.getContext('2d'), true); 
+                renderInspector(inspectorPanel); // تحديث الخصائص عند العودة لوضع التحرير
+            } else {
+                // وضع التشغيل
+                isPlaying = true;
+                playModal.classList.remove('hidden');
+
+                // *** منطق بدء اللعب ***
+                objects = JSON.parse(JSON.stringify(designObjects)); 
+                
+                playToggleBtn.classList.remove('bg-green-600', 'hover:bg-green-500');
+                playToggleBtn.classList.add('bg-red-600', 'hover:bg-red-500');
+                
+                if (iconElement) iconElement.setAttribute('data-lucide', 'stop-circle');
+                playToggleText.textContent = 'إيقاف';
+                
+                lucide.createIcons();
+                gameLoop();
+            }
+        }
+        
+        // -------------------------------------------------------------------
+        // تهيئة التطبيق
+        // -------------------------------------------------------------------
+
+        window.onload = () => {
+            // تحديث أبعاد الـ Canvas المنطقية مرة واحدة
+            updateCanvasDimensions();
+
+            // ربط الأزرار الرئيسية
+            playToggleBtn.addEventListener('click', handlePlayToggle);
+            closePlayModalBtn.addEventListener('click', handlePlayToggle);
+            $('#addObjectBtn').addEventListener('click', addObject);
+
+            // ربط أزرار النوافذ المنبثقة للجوال
+            showInspectorBtn.addEventListener('click', () => {
+                // عند الضغط على زر إظهار الخصائص، يجب أن يكون هناك كائن محدد
+                if(selectedId !== null) inspectorModal.classList.remove('hidden');
+            });
+            closeInspectorModalBtn.addEventListener('click', () => {
+                inspectorModal.classList.add('hidden');
+            });
+
+            // ربط زر الحذف بالقائمة
+            sceneList.addEventListener('click', (e) => {
+                if (e.target.closest('.delete-btn')) {
+                    const id = Number(e.target.closest('.delete-btn').dataset.id);
+                    deleteObject(id);
+                }
+            });
+
+            // التعامل مع سحب الكائنات في المحرر
+            editorCanvas.addEventListener('mousedown', (e) => {
+                if (isPlaying) return;
+                const { x: logicalX, y: logicalY } = getLogicalCoordinates(editorCanvas, e.clientX, e.clientY);
+                
+                for (let i = objects.length - 1; i >= 0; i--) {
+                    const obj = objects[i];
+                    if (logicalX >= obj.x && logicalX <= obj.x + obj.w && logicalY >= obj.y && logicalY <= obj.y + obj.h) {
+                        selectObject(obj.id);
+                        isDragging = true;
+                        
+                        let lastLogicalX = logicalX;
+                        let lastLogicalY = logicalY;
+
+                        const startDrag = (moveEvent) => {
+                           const { x: currentLogicalX, y: currentLogicalY } = getLogicalCoordinates(editorCanvas, moveEvent.clientX, moveEvent.clientY);
+
+                           const dx = currentLogicalX - lastLogicalX;
+                           const dy = currentLogicalY - lastLogicalY;
+                           
+                           lastLogicalX = currentLogicalX;
+                           lastLogicalY = currentLogicalY;
+                           
+                           // التحديث المباشر للموضع في المحرر
+                           const newX = obj.x + dx;
+                           const newY = obj.y + dy;
+                           
+                           updateObject(obj.id, 'x', Math.max(0, Math.min(LOGICAL_WIDTH - obj.w, newX)));
+                           updateObject(obj.id, 'y', Math.max(0, Math.min(LOGICAL_HEIGHT - obj.h, newY)));
+                        };
+                        
+                        const stopDrag = () => {
+                            isDragging = false;
+                            window.removeEventListener('mousemove', startDrag);
+                            window.removeEventListener('mouseup', stopDrag);
+                            window.removeEventListener('touchend', stopDrag);
+                        };
+
+                        window.addEventListener('mousemove', startDrag);
+                        window.addEventListener('mouseup', stopDrag);
+                        
+                        // دعم السحب باللمس
+                        editorCanvas.addEventListener('touchmove', (e) => {
+                            e.preventDefault();
+                            const touch = e.touches[0];
+                            startDrag({ clientX: touch.clientX, clientY: touch.clientY });
+                        }, { passive: false });
+                        editorCanvas.addEventListener('touchend', stopDrag);
+
+                        return;
+                    }
+                }
+                selectObject(null);
+            });
+
+            // الإطلاق الأولي
+            renderSceneList();
+            renderInspector(inspectorPanel);
+            drawScene(editorCanvas.getContext('2d'), true);
+        };
+        
+    </script>
+</body>
+</html>
